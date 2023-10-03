@@ -1,0 +1,86 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Screen Recording and Sending</title>
+  </head>
+  <body>
+    <button id="startButton">Start Recording</button>
+    <button id="stopButton" disabled>Stop Recording</button>
+
+    <video id="recordedVideo" controls></video>
+
+    <script src="https://cdn.socket.io/4.0.0/socket.io.min.js"></script>
+    <script>
+      const startButton = document.getElementById('startButton');
+      const stopButton = document.getElementById('stopButton');
+      const recordedVideo = document.getElementById('recordedVideo');
+      let mediaRecorder;
+
+      startButton.addEventListener('click', startRecording);
+      stopButton.addEventListener('click', stopRecording);
+
+      function combineStreams (audioStream, videoStream) {
+        const combinedStream = new MediaStream();
+
+        audioStream.getAudioTracks().forEach((track) => {
+          combinedStream.addTrack(track);
+        });
+
+        videoStream.getVideoTracks().forEach((track) => {
+          combinedStream.addTrack(track);
+        });
+
+        return combinedStream;
+      };
+
+      async function startRecording() {
+        const audioStream = await navigator.mediaDevices.getUserMedia({
+          audio: true,
+          video: false,
+        });
+        const videoStream = await navigator.mediaDevices.getDisplayMedia({
+          video: true,
+        });
+
+        const combinedStream = combineStreams(audioStream, videoStream);
+
+        mediaRecorder = new MediaRecorder(combinedStream);
+        console.log(mediaRecorder);
+
+        const socket = io.connect('http://localhost:3000');
+        socket.emit('startRecording');
+
+        mediaRecorder.ondataavailable = (event) => {
+          if (event.data.size > 0) {
+            console.log(event);
+            socket.emit('chunk', event.data);
+          }
+        };
+
+        mediaRecorder.onstop = () => {
+          stopRecording();
+          socket.emit('stopRecording');
+        };
+
+        socket.on('videoData', (chunkData) => {
+          console.log('inside videData');
+          const videoBlob = new Blob(chunkData, { type: 'video/mp4' });
+          recordedVideo.src = URL.createObjectURL(videoBlob);
+          recordedVideo.controls = true;
+        });
+
+        mediaRecorder.start(1000);
+        startButton.disabled = true;
+        stopButton.disabled = false;
+      }
+
+      function stopRecording() {
+        mediaRecorder.stop();
+        startButton.disabled = false;
+        stopButton.disabled = true;
+      }
+    </script>
+  </body>
+</html>
